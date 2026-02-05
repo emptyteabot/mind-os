@@ -4,6 +4,7 @@ import requests
 import webbrowser
 from datetime import datetime
 from threading import Timer
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, render_template, request, Response, stream_with_context, redirect, jsonify
 
@@ -58,6 +59,46 @@ SYSTEM_PROMPT = """
 
 注意：仅输出纯 JSON 字符串，不要 Markdown 代码块。
 """
+
+AGENT_PROMPTS = {
+    "商业": "你是商业审计官。只分析商业可行性：市场规模、竞争、盈利模式。一句话结论+一句话风险。不超过50字。",
+    "技术": "你是技术审计官。只分析技术难度：实现成本、技术栈、开发周期。一句话结论+一句话风险。不超过50字。",
+    "心理": "你是心理审计官。只分析用户动机：是否在逃避、是否有盲点、是否自欺。一句话结论+一句话真相。不超过50字。",
+    "执行": "你是执行审计官。只给出立即可做的下一步行动，按优先级排3个步骤。不超过50字。"
+}
+
+def call_agent(agent_name, prompt, user_input):
+    url = "https://api.deepseek.com/chat/completions"
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_input}
+        ],
+        "stream": False
+    }
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        data = r.json()
+        return agent_name, data['choices'][0]['message']['content']
+    except:
+        return agent_name, ""
+
+def parallel_agents(user_input):
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(call_agent, name, prompt, user_input): name 
+            for name, prompt in AGENT_PROMPTS.items()
+        }
+        for future in as_completed(futures):
+            name, content = future.result()
+            results[name] = content
+    return results
 
 # ================= 免费额度配置 =================
 FREE_DAILY_LIMIT = 50
@@ -213,8 +254,17 @@ def chat():
         HISTORY.append({"role": "user", "content": user_input})
         save_memory(HISTORY)
 
+        agent_results = parallel_agents(user_input)
+        agent_context = "\n".join([f"[{k}视角]: {v}" for k, v in agent_results.items() if v])
+        
+        enhanced_prompt = f"""{SYSTEM_PROMPT}
+
+以下是4位专家的预分析结果，请综合后输出最终JSON：
+{agent_context}
+"""
+
         context = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": enhanced_prompt},
             {"role": "user", "content": user_input}
         ]
 
