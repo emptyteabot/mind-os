@@ -15,7 +15,7 @@ const quotaDisplay = document.getElementById('quota-display');
 
 // ================= 额度管理 =================
 const STORAGE_KEY = 'mindos_usage';
-const FREE_LIMIT = 5;
+const FREE_LIMIT = 50;
 
 function getTodayKey() {
     return new Date().toISOString().split('T')[0];

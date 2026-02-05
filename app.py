@@ -60,7 +60,7 @@ SYSTEM_PROMPT = """
 """
 
 # ================= 免费额度配置 =================
-FREE_DAILY_LIMIT = 5
+FREE_DAILY_LIMIT = 50
 USAGE_FILE = "usage_data.json"
 
 
