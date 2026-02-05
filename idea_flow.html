@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IdeaFlow AI</title>
+    <!-- 引入 Tailwind CSS (无需安装，直接用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入图标库 -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- 引入谷歌字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #09090b; /* 极深灰，接近纯黑 */
+            color: #e4e4e7;
+            overflow: hidden; /* 禁止滚动 */
+        }
+        
+        /* 隐藏滚动条但保留功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        
+        /* 核心光晕动画 */
+        .glow-effect {
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(59,130,246,0.15) 0%, rgba(147,51,234,0.05) 40%, rgba(0,0,0,0) 70%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: -1;
+            animation: pulse-slow 8s infinite ease-in-out;
+            pointer-events: none;
+        }
+
+        @keyframes pulse-slow {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.5; }
+        }
+
+        /* 输入框的彩虹边框光晕 */
+        .input-glow:focus-within {
+            box-shadow: 0 0 40px -10px rgba(59, 130, 246, 0.4);
+            border-color: rgba(96, 165, 250, 0.5);
+        }
+
+        /* 打字机光标 */
+        .cursor-blink {
+            display: inline-block;
+            width: 8px;
+            height: 18px;
+            background-color: #60a5fa;
+            margin-left: 4px;
+            vertical-align: middle;
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* 消息出现动画 */
+        .fade-in-up {
+            animation: fadeInUp 0.5s ease-out forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        @keyframes fadeInUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col items-center justify-between py-10">
+
+    <!-- 背景光晕 -->
+    <div class="glow-effect"></div>
+
+    <!-- 顶部 Logo 区域 -->
+    <div class="absolute top-8 left-8 flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity cursor-default">
+        <i data-lucide="sparkles" class="w-5 h-5 text-blue-400"></i>
+        <span class="text-sm font-medium tracking-widest text-gray-400 uppercase">IdeaFlow</span>
+    </div>
+
+    <!-- 中间：对话流区域 -->
+    <div id="chat-container" class="flex-1 w-full max-w-2xl px-6 overflow-y-auto no-scrollbar flex flex-col gap-6 pt-20 pb-4">
+        <!-- 欢迎语 -->
+        <div class="flex gap-4 fade-in-up">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-900/20">
+                <i data-lucide="bot" class="w-4 h-4 text-white"></i>
+            </div>
+            <div class="space-y-2">
+                <div class="text-sm text-gray-400">AI Assistant</div>
+                <div class="text-base leading-7 text-gray-200">
+                    <p>我在这里。捕捉你的每一个瞬间灵感。</p>
+                </div>
+            </div>
+        </div>
+        <!-- 动态插入的内容会在这里 -->
+    </div>
+
+    <!-- 底部：输入区域 -->
+    <div class="w-full max-w-2xl px-6 mb-4 relative z-10">
+        <!-- 状态指示器 (隐形/加载中) -->
+        <div id="status-bar" class="h-6 mb-2 flex items-center gap-2 text-xs font-mono text-blue-400 opacity-0 transition-opacity duration-300">
+            <i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i>
+            <span id="status-text">ANALYZING INTENT...</span>
+        </div>
+
+        <div class="relative group input-glow bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl transition-all duration-300">
+            <textarea 
+                id="user-input"
+                class="w-full bg-transparent text-white p-4 pl-5 pr-14 text-lg outline-none resize-none h-[64px] max-h-[200px] placeholder-gray-500 font-light"
+                placeholder="输入灵感..."
+                rows="1"
+            ></textarea>
+            
+            <button id="send-btn" class="absolute right-3 bottom-3 p-2 rounded-xl bg-white/10 text-gray-400 hover:bg-white/20 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                <i data-lucide="arrow-up" class="w-5 h-5"></i>
+            </button>
+        </div>
+        <div class="text-center mt-3 text-xs text-gray-600">Enter 发送 · Shift + Enter 换行</div>
+    </div>
+
+    <script>
+        // 初始化图标
+        lucide.createIcons();
+
+        const input = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const chatContainer = document.getElementById('chat-container');
+        const statusBar = document.getElementById('status-bar');
+        const statusText = document.getElementById('status-text');
+
+        // 自动调整输入框高度
+        input.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            if(this.value === '') this.style.height = '64px';
+        });
+
+        // 监听回车发送
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+            }
+        });
+
+        sendBtn.addEventListener('click', handleSend);
+
+        async function handleSend() {
+            const text = input.value.trim();
+            if (!text) return;
+
+            // 1. 用户消息上屏
+            addMessage(text, 'user');
+            input.value = '';
+            input.style.height = '64px';
+            input.disabled = true;
+            sendBtn.disabled = true;
+
+            // 2. 模拟 AI 思考 (显示状态栏)
+            statusBar.classList.remove('opacity-0');
+            
+            // 随机模拟思考时间 (1-2秒)
+            await wait(1000); 
+            statusText.innerText = "CLASSIFYING...";
+            await wait(800);
+            statusText.innerText = "GENERATING RESPONSE...";
+
+            // 3. 模拟 AI 响应
+            const response = mockAIResponse(text);
+            statusBar.classList.add('opacity-0');
+            
+            // 4. AI 消息打字机输出
+            await typeWriterMessage(response);
+            
+            // 5. 恢复输入
+            input.disabled = false;
+            sendBtn.disabled = false;
+            input.focus();
+            
+            // 重置状态栏文案
+            setTimeout(() => statusText.innerText = "ANALYZING INTENT...", 500);
+        }
+
+        // 添加消息到界面
+        function addMessage(content, role) {
+            const div = document.createElement('div');
+            div.className = 'flex gap-4 fade-in-up mb-6';
+            
+            if (role === 'user') {
+                div.innerHTML = `
+                    <div class="flex-1 text-right">
+                        <div class="text-sm text-gray-500 mb-1">You</div>
+                        <div class="inline-block bg-white/10 px-4 py-2.5 rounded-2xl rounded-tr-sm text-gray-100 text-base border border-white/5 shadow-sm">
+                            ${escapeHtml(content)}
+                        </div>
+                    </div>
+                `;
+            } else {
+                // AI 消息容器（内容先空着，等打字机填）
+                div.innerHTML = `
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-900/20">
+                        <i data-lucide="bot" class="w-4 h-4 text-white"></i>
+                    </div>
+                    <div class="space-y-2 flex-1 pt-1">
+                        <div class="text-sm text-gray-400 flex items-center gap-2">
+                            Gemini 
+                            <span class="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded border border-blue-500/30 font-mono tracking-tight">${content.tag}</span>
+                        </div>
+                        <div class="text-base leading-7 text-gray-200 font-light ai-content"></div>
+                    </div>
+                `;
+            }
+            
+            chatContainer.appendChild(div);
+            scrollToBottom();
+            lucide.createIcons(); // 刷新图标
+            return div.querySelector('.ai-content');
+        }
+
+        // 打字机效果核心逻辑
+        async function typeWriterMessage(data) {
+            const container = addMessage(data, 'ai'); // 创建空气泡
+            const text = data.text;
+            
+            // 添加光标
+            const cursor = document.createElement('span');
+            cursor.className = 'cursor-blink';
+            container.appendChild(cursor);
+
+            for (let i = 0; i < text.length; i++) {
+                cursor.before(text[i]); // 在光标前插入文字
+                scrollToBottom();
+                
+                // 随机打字速度，模拟真人/AI停顿
+                const speed = Math.random() * 30 + 10; 
+                if (text[i] === '，' || text[i] === '。') await wait(300); // 标点符号停顿
+                else await wait(speed);
+            }
+            
+            // 结束后移除光标（或者保留看你需要）
+            await wait(2000);
+            cursor.remove();
+        }
+
+        // 简单的模拟大脑 (伪 AI)
+        function mockAIResponse(input) {
+            const lower = input.toLowerCase();
+            
+            if (lower.includes('提醒') || lower.includes('点') || lower.includes('明天')) {
+                return {
+                    tag: 'TODO',
+                    text: `已识别为待办事项。我已将其添加到您的任务列表中。\n\n📅 时间锚点：已提取\n🔔 提醒级别：高\n\n建议：在执行此任务前，您可能需要准备相关的文档。`
+                };
+            } else if (lower.includes('想法') || lower.includes('觉得') || lower.includes('灵感')) {
+                return {
+                    tag: 'IDEA',
+                    text: `捕捉到一个有趣的思维碎片。已归档至「灵感库」。\n\n💡 关联建议：\n这个想法与您上周记录的“自动化脚本”似乎有某种内在联系。建议尝试将两者结合，或许能产生新的化学反应。`
+                };
+            } else if (lower.length < 5) {
+                return {
+                    tag: 'CHAT',
+                    text: `我在听。请继续展开您的想法，我会帮您梳理出结构。`
+                };
+            } else {
+                return {
+                    tag: 'NOTE',
+                    text: `已记录。正在尝试分析这段内容的上下文关联...\n\n我将其标记为未分类笔记，稍后您可以随时回顾整理。`
+                };
+            }
+        }
+
+        function scrollToBottom() {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function wait(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
