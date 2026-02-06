@@ -1,32 +1,22 @@
-/* Mind OS - Main Styles */
-
-body { 
-    background-color: #FFFFFF; 
-    color: #000000; 
+body {
+    background-color: #FFF;
+    color: #000;
     font-family: "Noto Sans SC", sans-serif;
     overscroll-behavior: none;
 }
 
-.no-scrollbar::-webkit-scrollbar { 
-    display: none; 
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
 
 .os-card {
-    background: #FFFFFF;
+    background: #FFF;
     border-bottom: 1px solid #F0F0F0;
     padding: 24px 0;
     animation: slideIn 0.3s ease-out;
 }
 
-@keyframes slideIn { 
-    from { 
-        opacity: 0; 
-        transform: translateY(10px); 
-    } 
-    to { 
-        opacity: 1; 
-        transform: translateY(0); 
-    } 
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .tag-badge {
@@ -37,16 +27,37 @@ body {
     padding: 2px 6px;
     border-radius: 4px;
     text-transform: uppercase;
+    white-space: nowrap;
 }
 
-/* 残酷真相区域样式 */
-.truth-section {
-    border-left: 2px solid #FF3B30;
-    padding-left: 12px;
+.agent-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
     margin-top: 12px;
+}
+
+.agent-card {
+    background: #FAFAFA;
+    border: 1px solid #F0F0F0;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.agent-role {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: #999;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+
+.agent-verdict {
+    font-size: 13px;
+    line-height: 1.5;
     color: #333;
-    font-size: 14px;
-    line-height: 1.6;
 }
 
 .action-list {
@@ -56,15 +67,15 @@ body {
     color: #666;
 }
 
-.action-item { 
-    display: flex; 
-    gap: 8px; 
-    margin-bottom: 4px; 
+.action-item {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
 }
 
-.action-item::before { 
-    content: "->"; 
-    color: #007AFF; 
+.action-item::before {
+    content: "->";
+    color: #007AFF;
 }
 
 .input-area {
@@ -74,54 +85,24 @@ body {
     padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* ================= Pro Modal 样式 ================= */
-
-/* 模态框入场动画 */
 @keyframes modalIn {
-    from {
-        opacity: 0;
-        transform: scale(0.95) translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1) translateY(0);
-    }
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .animate-modal-in {
     animation: modalIn 0.3s ease-out;
 }
 
-/* 模态框阴影增强 */
 #pro-modal > div:last-child {
-    box-shadow: 
-        0 25px 50px -12px rgba(0, 0, 0, 0.25),
-        0 0 0 1px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.05);
 }
 
-/* 升级按钮悬停效果 */
-#pro-modal a[href="#"]:hover {
-    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.3);
-}
-
-/* 特性列表项悬停 */
-#pro-modal .bg-gray-50 > div:hover {
-    background: rgba(0, 0, 0, 0.02);
-    border-radius: 8px;
-    margin: -4px;
-    padding: 4px;
-}
-
-/* 额度显示低额度警告 */
 #quota-display .text-red-500 {
     animation: pulse 2s ease-in-out infinite;
 }
 
 @keyframes pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.6;
-    }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
 }

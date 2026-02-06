@@ -1,9 +1,5 @@
-// Mind OS - Main JavaScript
-
-// ================= 初始化 =================
 lucide.createIcons();
 
-// DOM 元素
 const feed = document.getElementById('feed');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
@@ -13,7 +9,6 @@ const proModal = document.getElementById('pro-modal');
 const closeModalBtn = document.getElementById('close-modal');
 const quotaDisplay = document.getElementById('quota-display');
 
-// ================= 额度管理 =================
 const STORAGE_KEY = 'mindos_usage';
 const FREE_LIMIT = 50;
 
@@ -24,10 +19,7 @@ function getTodayKey() {
 function getLocalUsage() {
     try {
         const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-        const today = getTodayKey();
-        if (data.date !== today) {
-            return { date: today, count: 0 };
-        }
+        if (data.date !== getTodayKey()) return { date: getTodayKey(), count: 0 };
         return data;
     } catch {
         return { date: getTodayKey(), count: 0 };
@@ -35,15 +27,11 @@ function getLocalUsage() {
 }
 
 function setLocalUsage(count) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        date: getTodayKey(),
-        count: count
-    }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ date: getTodayKey(), count }));
 }
 
 function getRemainingQuota() {
-    const usage = getLocalUsage();
-    return Math.max(0, FREE_LIMIT - usage.count);
+    return Math.max(0, FREE_LIMIT - getLocalUsage().count);
 }
 
 function incrementLocalUsage() {
@@ -55,57 +43,33 @@ function incrementLocalUsage() {
 
 function updateQuotaDisplay(remaining) {
     if (!quotaDisplay) return;
-    
     if (remaining === -1) {
         quotaDisplay.innerHTML = '<span class="text-green-500">PRO</span>';
-    } else if (remaining <= 2) {
+    } else if (remaining <= 5) {
         quotaDisplay.innerHTML = `<span class="text-red-500">${remaining}/${FREE_LIMIT}</span>`;
     } else {
         quotaDisplay.textContent = `${remaining}/${FREE_LIMIT}`;
     }
 }
 
-// 初始化额度显示
 updateQuotaDisplay(getRemainingQuota());
 
-// ================= Pro 模态框 =================
 function showProModal() {
-    if (proModal) {
-        proModal.classList.remove('hidden');
-        proModal.classList.add('flex');
-        document.body.style.overflow = 'hidden';
-    }
+    proModal.classList.remove('hidden');
+    proModal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
 }
 
 function hideProModal() {
-    if (proModal) {
-        proModal.classList.add('hidden');
-        proModal.classList.remove('flex');
-        document.body.style.overflow = '';
-    }
+    proModal.classList.add('hidden');
+    proModal.classList.remove('flex');
+    document.body.style.overflow = '';
 }
 
-if (closeModalBtn) {
-    closeModalBtn.addEventListener('click', hideProModal);
-}
+closeModalBtn.addEventListener('click', hideProModal);
+proModal.addEventListener('click', (e) => { if (e.target === proModal) hideProModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideProModal(); });
 
-// 点击背景关闭
-if (proModal) {
-    proModal.addEventListener('click', (e) => {
-        if (e.target === proModal) {
-            hideProModal();
-        }
-    });
-}
-
-// ESC 关闭
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        hideProModal();
-    }
-});
-
-// ================= 输入交互 =================
 input.addEventListener('focus', () => {
     logoContainer.style.marginTop = '-100px';
     logoContainer.style.opacity = '0';
@@ -113,29 +77,20 @@ input.addEventListener('focus', () => {
 
 input.addEventListener('input', function() {
     this.style.height = 'auto';
-    this.style.height = (this.scrollHeight) + 'px';
+    this.style.height = this.scrollHeight + 'px';
 });
 
-// ================= 发送消息 =================
 async function handleSend() {
     const text = input.value.trim();
     if (!text) return;
 
-    // 前端预检查额度
-    const remaining = getRemainingQuota();
-    if (remaining <= 0) {
+    if (getRemainingQuota() <= 0) {
         showProModal();
         return;
     }
 
-    // 乐观 UI
     const tempId = Date.now();
-    renderCard(tempId, { 
-        bluf: text, 
-        tag: 'INPUT', 
-        truth: '...', 
-        actions: [] 
-    }, true);
+    renderCard(tempId, { bluf: text, tag: 'INPUT', agents: [], actions: [] }, true);
 
     input.value = '';
     input.style.height = 'auto';
@@ -148,18 +103,11 @@ async function handleSend() {
             body: JSON.stringify({ message: text })
         });
 
-        // 检查是否超出额度
         if (response.status === 429) {
-            const errorData = await response.json();
-            if (errorData.error === 'quota_exceeded') {
-                // 移除临时卡片
-                const tempCard = document.getElementById(`card-${tempId}`);
-                if (tempCard) tempCard.remove();
-                
-                loader.style.width = '0';
-                showProModal();
-                return;
-            }
+            document.getElementById(`card-${tempId}`)?.remove();
+            loader.style.width = '0';
+            showProModal();
+            return;
         }
 
         const reader = response.body.getReader();
@@ -170,19 +118,16 @@ async function handleSend() {
             const { done, value } = await reader.read();
             if (done) break;
             const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        if (data.content) fullJsonStr += data.content;
-                        if (data.quota !== undefined) {
-                            // 更新本地额度并显示
-                            incrementLocalUsage();
-                            updateQuotaDisplay(data.quota);
-                        }
-                    } catch (e) {}
-                }
+            for (const line of chunk.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.content) fullJsonStr += data.content;
+                    if (data.quota !== undefined) {
+                        incrementLocalUsage();
+                        updateQuotaDisplay(data.quota);
+                    }
+                } catch {}
             }
         }
 
@@ -190,43 +135,40 @@ async function handleSend() {
         setTimeout(() => { loader.style.width = '0'; }, 300);
 
         try {
-            // 清理 markdown 标记
             const cleanJson = fullJsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
             const structData = JSON.parse(cleanJson);
-            const tempCard = document.getElementById(`card-${tempId}`);
-            if (tempCard) tempCard.remove();
+            document.getElementById(`card-${tempId}`)?.remove();
             renderCard(Date.now(), structData);
         } catch (e) {
-            console.error(e);
-            // 降级显示
             const tempCard = document.getElementById(`card-${tempId}`);
-            if (tempCard) tempCard.innerHTML += `<div class="text-red-500 text-xs mt-2">Format Error: ${fullJsonStr}</div>`;
+            if (tempCard) tempCard.innerHTML += `<div class="text-red-500 text-xs mt-2">${fullJsonStr}</div>`;
         }
-
-    } catch (err) {
+    } catch {
         loader.style.width = '0';
-        console.error(err);
     }
 }
 
-// ================= 渲染卡片 =================
-function renderCard(id, data, isTemp=false) {
+function renderCard(id, data, isTemp = false) {
     const div = document.createElement('div');
     div.id = `card-${id}`;
     div.className = `os-card ${isTemp ? 'opacity-60' : ''}`;
 
-    // 渲染行动列表
-    let actionsHtml = '';
-    if (data.actions && data.actions.length > 0) {
-        actionsHtml = `<div class="action-list">` + 
-            data.actions.map(act => `<div class="action-item">${act}</div>`).join('') + 
-            `</div>`;
+    let agentsHtml = '';
+    if (data.agents && data.agents.length > 0) {
+        agentsHtml = '<div class="agent-grid">' +
+            data.agents.map(a =>
+                `<div class="agent-card">
+                    <div class="agent-role">${a.role}</div>
+                    <div class="agent-verdict">${a.verdict}</div>
+                </div>`
+            ).join('') + '</div>';
     }
 
-    // 渲染残酷真相
-    let truthHtml = '';
-    if (data.truth && data.truth !== '...') {
-        truthHtml = `<div class="truth-section">${data.truth}</div>`;
+    let actionsHtml = '';
+    if (data.actions && data.actions.length > 0) {
+        actionsHtml = '<div class="action-list">' +
+            data.actions.map(act => `<div class="action-item">${act}</div>`).join('') +
+            '</div>';
     }
 
     div.innerHTML = `
@@ -235,7 +177,7 @@ function renderCard(id, data, isTemp=false) {
                 <h2 class="text-lg font-bold text-black leading-snug">${data.bluf}</h2>
                 <span class="tag-badge">${data.tag || 'RAW'}</span>
             </div>
-            ${truthHtml}
+            ${agentsHtml}
             ${actionsHtml}
         </div>
     `;
@@ -244,7 +186,6 @@ function renderCard(id, data, isTemp=false) {
     lucide.createIcons();
 }
 
-// ================= 事件绑定 =================
 sendBtn.onclick = handleSend;
 input.onkeydown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -252,3 +193,4 @@ input.onkeydown = (e) => {
         handleSend();
     }
 };
+
