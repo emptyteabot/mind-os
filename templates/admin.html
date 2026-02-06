@@ -3,44 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>运营后台 - 会锐评的AI</title>
+    <title>小红书内容工厂</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: "Noto Sans SC", sans-serif; background: #FAFAFA; }
-        .copy-toast { position: fixed; top: 20px; right: 20px; background: #000; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 100; }
-        .copy-toast.show { opacity: 1; }
+        .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #000; color: #fff; padding: 8px 20px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; }
+        .toast.show { opacity: 1; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
     </style>
 </head>
-<body class="min-h-screen p-6 max-w-3xl mx-auto">
-    <div class="copy-toast" id="toast">已复制到剪贴板</div>
+<body class="min-h-screen p-6 max-w-2xl mx-auto">
+    <div class="toast" id="toast">已复制</div>
 
-    <div class="mb-8">
-        <h1 class="text-2xl font-bold text-black">运营后台</h1>
-        <p class="text-gray-400 text-sm mt-1">一键生成全平台推广文案，复制粘贴发布</p>
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-black">小红书内容工厂</h1>
+        <p class="text-gray-400 text-sm mt-1">一键生成标题 + 正文 + 封面文案，复制直接发</p>
     </div>
 
-    <button id="gen-btn" onclick="generateAll()" class="w-full bg-black text-white py-3 rounded-xl font-medium mb-8 hover:bg-gray-800 active:scale-[0.98] transition-all">
-        生成今日文案
+    <button id="gen-btn" onclick="gen()" class="w-full bg-black text-white py-3.5 rounded-xl font-medium mb-6 hover:bg-gray-800 active:scale-[0.98] transition-all text-sm">
+        生成今日小红书笔记
     </button>
 
-    <div id="content-area" class="space-y-6"></div>
+    <div id="out" class="space-y-4"></div>
 
     <script>
-        const contentArea = document.getElementById('content-area');
-        const genBtn = document.getElementById('gen-btn');
+        const out = document.getElementById('out');
+        const btn = document.getElementById('gen-btn');
         const toast = document.getElementById('toast');
 
-        const PLATFORM_META = {
-            '小红书': {color: '#FF2442', emoji: '📕'},
-            '短视频': {color: '#000000', emoji: '🎬'},
-            '知乎': {color: '#0066FF', emoji: '📘'},
+        const META = {
+            '标题': {label: '5个标题（选一个）', bg: '#FFF5F5', border: '#FFD6D6'},
+            '正文': {label: '笔记正文', bg: '#F5F9FF', border: '#D6E8FF'},
+            '封面文案': {label: '封面大字+小字', bg: '#F5FFF5', border: '#D6FFD6'},
         };
 
-        async function generateAll() {
-            genBtn.disabled = true;
-            genBtn.textContent = '生成中...';
-            contentArea.innerHTML = '';
+        async function gen() {
+            btn.disabled = true;
+            btn.textContent = '4位写手并行生成中...';
+            out.innerHTML = '';
 
             try {
                 const res = await fetch('/api/generate-content', {method: 'POST'});
@@ -53,60 +55,48 @@
                     for (const line of decoder.decode(value).split('\n')) {
                         if (!line.startsWith('data: ')) continue;
                         try {
-                            const data = JSON.parse(line.slice(6));
-                            if (data.platform && data.content) {
-                                renderPlatformCard(data.platform, data.content);
-                            }
+                            const d = JSON.parse(line.slice(6));
+                            if (d.platform && d.content) render(d.platform, d.content);
                         } catch {}
                     }
                 }
-            } catch (err) {
-                contentArea.innerHTML = '<p class="text-red-500 text-sm">生成失败，请重试</p>';
+            } catch {
+                out.innerHTML = '<p class="text-red-500 text-sm">生成失败，重试</p>';
             }
 
-            genBtn.disabled = false;
-            genBtn.textContent = '重新生成';
+            btn.disabled = false;
+            btn.textContent = '重新生成';
         }
 
-        function renderPlatformCard(platform, content) {
-            const meta = PLATFORM_META[platform] || {color: '#666', emoji: '📄'};
-            const id = 'content-' + platform;
+        function render(key, content) {
+            const m = META[key] || {label: key, bg: '#F5F5F5', border: '#E0E0E0'};
+            const id = 'c-' + key;
             const div = document.createElement('div');
-            div.className = 'bg-white rounded-xl border border-gray-100 overflow-hidden';
-            div.style.animation = 'fadeIn 0.4s ease-out';
+            div.className = 'rounded-xl overflow-hidden fade-in';
+            div.style.cssText = `background:${m.bg}; border:1px solid ${m.border}`;
             div.innerHTML = `
-                <div class="flex items-center justify-between px-4 py-3 border-b border-gray-50">
-                    <div class="flex items-center gap-2">
-                        <span>${meta.emoji}</span>
-                        <span class="font-bold text-sm" style="color:${meta.color}">${platform}</span>
-                    </div>
-                    <button onclick="copyContent('${id}')" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-lg transition-colors">复制</button>
+                <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color:${m.border}">
+                    <span class="font-bold text-xs text-gray-700">${m.label}</span>
+                    <button onclick="copy('${id}')" class="text-xs bg-white/80 hover:bg-white px-3 py-1 rounded-lg transition-colors border" style="border-color:${m.border}">复制</button>
                 </div>
-                <pre id="${id}" class="p-4 text-sm leading-relaxed text-gray-700 whitespace-pre-wrap font-sans">${escapeHtml(content)}</pre>`;
-            contentArea.appendChild(div);
+                <pre id="${id}" class="p-4 text-sm leading-relaxed text-gray-800 whitespace-pre-wrap font-sans">${esc(content)}</pre>`;
+            out.appendChild(div);
         }
 
-        function copyContent(id) {
+        function copy(id) {
             const el = document.getElementById(id);
             if (!el) return;
             navigator.clipboard.writeText(el.textContent).then(() => {
                 toast.classList.add('show');
-                setTimeout(() => toast.classList.remove('show'), 1500);
+                setTimeout(() => toast.classList.remove('show'), 1200);
             });
         }
 
-        function escapeHtml(text) {
+        function esc(t) {
             const d = document.createElement('div');
-            d.textContent = text;
+            d.textContent = t;
             return d.innerHTML;
         }
     </script>
-    <style>
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
 </body>
 </html>
-
