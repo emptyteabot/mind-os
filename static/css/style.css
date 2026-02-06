@@ -1,6 +1,6 @@
-body {
-    background-color: #FFF;
-    color: #000;
+body { 
+    background-color: #FFF; 
+    color: #000; 
     font-family: "Noto Sans SC", sans-serif;
     overscroll-behavior: none;
 }
@@ -14,9 +14,9 @@ body {
     animation: slideIn 0.3s ease-out;
 }
 
-@keyframes slideIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+@keyframes slideIn { 
+    from { opacity: 0; transform: translateY(10px); } 
+    to { opacity: 1; transform: translateY(0); } 
 }
 
 .tag-badge {
@@ -30,34 +30,50 @@ body {
     white-space: nowrap;
 }
 
-.agent-grid {
+.dims-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    margin-top: 12px;
+    gap: 12px;
+    margin-top: 16px;
 }
 
-.agent-card {
+@media (max-width: 480px) {
+    .dims-grid { grid-template-columns: 1fr; }
+}
+
+.dim-item {
     background: #FAFAFA;
-    border: 1px solid #F0F0F0;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 12px;
 }
 
-.agent-role {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
+.dim-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.dim-name {
+    font-size: 12px;
     font-weight: 600;
-    color: #999;
-    text-transform: uppercase;
-    margin-bottom: 4px;
-    letter-spacing: 0.5px;
+    color: #666;
 }
 
-.agent-verdict {
+.dim-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.score-high { color: #34C759; }
+.score-mid { color: #FF9500; }
+.score-low { color: #FF3B30; }
+
+.dim-verdict {
     font-size: 13px;
-    line-height: 1.5;
     color: #333;
+    line-height: 1.5;
 }
 
 .action-list {
@@ -67,15 +83,15 @@ body {
     color: #666;
 }
 
-.action-item {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 4px;
+.action-item { 
+    display: flex; 
+    gap: 8px; 
+    margin-bottom: 4px; 
 }
 
-.action-item::before {
-    content: "->";
-    color: #007AFF;
+.action-item::before { 
+    content: "->"; 
+    color: #007AFF; 
 }
 
 .input-area {
@@ -85,6 +101,26 @@ body {
     padding-bottom: env(safe-area-inset-bottom);
 }
 
+.loader-bar {
+    height: 2px;
+    background: #000;
+    width: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: width 0.3s;
+}
+
+.loader-bar.active {
+    animation: loading 3s ease-in-out infinite;
+}
+
+@keyframes loading {
+    0% { width: 0; }
+    50% { width: 70%; }
+    100% { width: 95%; }
+}
+
 @keyframes modalIn {
     from { opacity: 0; transform: scale(0.95) translateY(10px); }
     to { opacity: 1; transform: scale(1) translateY(0); }
@@ -92,17 +128,4 @@ body {
 
 .animate-modal-in {
     animation: modalIn 0.3s ease-out;
-}
-
-#pro-modal > div:last-child {
-    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.05);
-}
-
-#quota-display .text-red-500 {
-    animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
 }

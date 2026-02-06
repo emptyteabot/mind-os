@@ -9,7 +9,7 @@ const proModal = document.getElementById('pro-modal');
 const closeModalBtn = document.getElementById('close-modal');
 const quotaDisplay = document.getElementById('quota-display');
 
-const STORAGE_KEY = 'mindos_usage';
+const STORAGE_KEY = 'ruiping_usage';
 const FREE_LIMIT = 50;
 
 function getTodayKey() {
@@ -17,60 +17,48 @@ function getTodayKey() {
 }
 
 function getLocalUsage() {
-    try {
-        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-        if (data.date !== getTodayKey()) return { date: getTodayKey(), count: 0 };
-        return data;
-    } catch {
-        return { date: getTodayKey(), count: 0 };
-    }
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (data.date !== getTodayKey()) return { date: getTodayKey(), count: 0 };
+    return data;
 }
 
-function setLocalUsage(count) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ date: getTodayKey(), count }));
-}
-
-function getRemainingQuota() {
-    return Math.max(0, FREE_LIMIT - getLocalUsage().count);
-}
-
-function incrementLocalUsage() {
+function incrementUsage() {
     const usage = getLocalUsage();
-    usage.count += 1;
-    setLocalUsage(usage.count);
+    usage.count++;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(usage));
     return FREE_LIMIT - usage.count;
 }
 
-function updateQuotaDisplay(remaining) {
+function getRemaining() {
+    return Math.max(0, FREE_LIMIT - getLocalUsage().count);
+}
+
+function updateQuota(remaining) {
     if (!quotaDisplay) return;
-    if (remaining === -1) {
-        quotaDisplay.innerHTML = '<span class="text-green-500">PRO</span>';
-    } else if (remaining <= 5) {
-        quotaDisplay.innerHTML = `<span class="text-red-500">${remaining}/${FREE_LIMIT}</span>`;
+    if (remaining <= 5) {
+        quotaDisplay.innerHTML = '<span class="text-red-500">' + remaining + '/' + FREE_LIMIT + '</span>';
     } else {
-        quotaDisplay.textContent = `${remaining}/${FREE_LIMIT}`;
+        quotaDisplay.textContent = remaining + '/' + FREE_LIMIT;
     }
 }
 
-updateQuotaDisplay(getRemainingQuota());
+updateQuota(getRemaining());
 
-function showProModal() {
+function showModal() {
     proModal.classList.remove('hidden');
     proModal.classList.add('flex');
-    document.body.style.overflow = 'hidden';
 }
 
-function hideProModal() {
+function hideModal() {
     proModal.classList.add('hidden');
     proModal.classList.remove('flex');
-    document.body.style.overflow = '';
 }
 
-closeModalBtn.addEventListener('click', hideProModal);
-proModal.addEventListener('click', (e) => { if (e.target === proModal) hideProModal(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideProModal(); });
+closeModalBtn.addEventListener('click', hideModal);
+proModal.addEventListener('click', function(e) { if (e.target === proModal) hideModal(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') hideModal(); });
 
-input.addEventListener('focus', () => {
+input.addEventListener('focus', function() {
     logoContainer.style.marginTop = '-100px';
     logoContainer.style.opacity = '0';
 });
@@ -84,110 +72,100 @@ async function handleSend() {
     const text = input.value.trim();
     if (!text) return;
 
-    if (getRemainingQuota() <= 0) {
-        showProModal();
+    if (getRemaining() <= 0) {
+        showModal();
         return;
     }
 
-    const tempId = Date.now();
-    renderCard(tempId, { bluf: text, tag: 'INPUT', agents: [], actions: [] }, true);
-
     input.value = '';
     input.style.height = 'auto';
-    loader.style.width = '60%';
+    loader.classList.add('active');
+
+    renderUserCard(text);
 
     try {
-        const response = await fetch('/chat', {
+        const res = await fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text })
         });
 
-        if (response.status === 429) {
-            document.getElementById(`card-${tempId}`)?.remove();
-            loader.style.width = '0';
-            showProModal();
+        loader.classList.remove('active');
+
+        if (res.status === 429) {
+            showModal();
             return;
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullJsonStr = "";
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value);
-            for (const line of chunk.split('\n')) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                    const data = JSON.parse(line.slice(6));
-                    if (data.content) fullJsonStr += data.content;
-                    if (data.quota !== undefined) {
-                        incrementLocalUsage();
-                        updateQuotaDisplay(data.quota);
-                    }
-                } catch {}
-            }
-        }
-
-        loader.style.width = '100%';
-        setTimeout(() => { loader.style.width = '0'; }, 300);
-
-        try {
-            const cleanJson = fullJsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-            const structData = JSON.parse(cleanJson);
-            document.getElementById(`card-${tempId}`)?.remove();
-            renderCard(Date.now(), structData);
-        } catch (e) {
-            const tempCard = document.getElementById(`card-${tempId}`);
-            if (tempCard) tempCard.innerHTML += `<div class="text-red-500 text-xs mt-2">${fullJsonStr}</div>`;
-        }
-    } catch {
-        loader.style.width = '0';
+        const data = await res.json();
+        incrementUsage();
+        updateQuota(data.remaining !== undefined ? data.remaining : getRemaining());
+        renderAuditCard(data);
+    } catch (err) {
+        loader.classList.remove('active');
     }
 }
 
-function renderCard(id, data, isTemp = false) {
+function renderUserCard(text) {
     const div = document.createElement('div');
-    div.id = `card-${id}`;
-    div.className = `os-card ${isTemp ? 'opacity-60' : ''}`;
+    div.className = 'os-card opacity-60';
+    div.innerHTML = '<div class="flex justify-between items-start">' +
+        '<h2 class="text-lg font-bold text-black">' + escapeHtml(text) + '</h2>' +
+        '<span class="tag-badge">INPUT</span></div>';
+    feed.insertBefore(div, feed.firstChild);
+}
 
-    let agentsHtml = '';
-    if (data.agents && data.agents.length > 0) {
-        agentsHtml = '<div class="agent-grid">' +
-            data.agents.map(a =>
-                `<div class="agent-card">
-                    <div class="agent-role">${a.role}</div>
-                    <div class="agent-verdict">${a.verdict}</div>
-                </div>`
-            ).join('') + '</div>';
+function renderAuditCard(data) {
+    const div = document.createElement('div');
+    div.className = 'os-card';
+
+    var dimsHtml = '';
+    if (data.dimensions && data.dimensions.length) {
+        dimsHtml = '<div class="dims-grid">';
+        for (var i = 0; i < data.dimensions.length; i++) {
+            var d = data.dimensions[i];
+            var cls = d.score >= 7 ? 'score-high' : d.score >= 4 ? 'score-mid' : 'score-low';
+            dimsHtml += '<div class="dim-item">' +
+                '<div class="dim-header">' +
+                '<span class="dim-name">' + d.dim + '</span>' +
+                '<span class="dim-score ' + cls + '">' + d.score + '/10</span>' +
+                '</div>' +
+                '<div class="dim-verdict">' + d.verdict + '</div>' +
+                '</div>';
+        }
+        dimsHtml += '</div>';
     }
 
-    let actionsHtml = '';
-    if (data.actions && data.actions.length > 0) {
-        actionsHtml = '<div class="action-list">' +
-            data.actions.map(act => `<div class="action-item">${act}</div>`).join('') +
-            '</div>';
+    var actionsHtml = '';
+    if (data.actions && data.actions.length) {
+        actionsHtml = '<div class="action-list">';
+        for (var j = 0; j < data.actions.length; j++) {
+            actionsHtml += '<div class="action-item">' + data.actions[j] + '</div>';
+        }
+        actionsHtml += '</div>';
     }
 
-    div.innerHTML = `
-        <div class="flex flex-col gap-2">
-            <div class="flex justify-between items-start">
-                <h2 class="text-lg font-bold text-black leading-snug">${data.bluf}</h2>
-                <span class="tag-badge">${data.tag || 'RAW'}</span>
-            </div>
-            ${agentsHtml}
-            ${actionsHtml}
-        </div>
-    `;
+    div.innerHTML = '<div class="flex flex-col gap-3">' +
+        '<div class="flex justify-between items-start">' +
+        '<h2 class="text-lg font-bold text-black">' + data.bluf + '</h2>' +
+        '<span class="tag-badge">' + (data.tag || 'AUDIT') + '</span>' +
+        '</div>' +
+        dimsHtml +
+        actionsHtml +
+        '</div>';
 
     feed.insertBefore(div, feed.firstChild);
     lucide.createIcons();
 }
 
+function escapeHtml(text) {
+    var d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+}
+
 sendBtn.onclick = handleSend;
-input.onkeydown = (e) => {
+input.onkeydown = function(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSend();

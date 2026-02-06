@@ -4,42 +4,25 @@ import requests
 import webbrowser
 from datetime import datetime
 from threading import Timer
-from flask import Flask, render_template, request, Response, stream_with_context, redirect, jsonify
-from config import DEEPSEEK_API_KEY, MODEL_NAME, DATA_FILE, FLASK_HOST, FLASK_PORT, FLASK_DEBUG
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-SYSTEM_PROMPT = """
-你是「会锐评的AI」—— 多维度思维审计系统。
-你由4个独立审计官组成，必须从4个维度并行评审用户输入：
-
-1. 商业审计官：市场可行性、竞争格局、盈利模型
-2. 技术审计官：技术难度、实现成本、时间周期
-3. 心理审计官：用户动机、认知偏差、逃避行为
-4. 执行审计官：行动路径、优先级、风险预判
-
-规则：
-- 结论先行，默认质疑假设
-- 禁止安慰、鼓励、废话
-- 数据不足时标记而非猜测
-- 每个审计官独立给出锐评
-
-输出纯JSON：
-{
-  "bluf": "一句话核心结论",
-  "agents": [
-    {"role": "商业", "verdict": "锐评"},
-    {"role": "技术", "verdict": "锐评"},
-    {"role": "心理", "verdict": "锐评"},
-    {"role": "执行", "verdict": "锐评"}
-  ],
-  "actions": ["步骤1", "步骤2", "步骤3"],
-  "tag": "标签"
-}
-
-仅输出纯JSON，不要Markdown代码块。
-"""
+from flask import Flask, render_template, request, redirect, jsonify
+from config import (
+    DEEPSEEK_API_KEY, DATA_FILE,
+    FLASK_HOST, FLASK_PORT, FLASK_DEBUG
+)
 
 FREE_DAILY_LIMIT = 50
 USAGE_FILE = "usage_data.json"
+
+AGENTS = {
+    "商业": "你是商业分析师。用2句话锐评这个想法的市场可行性。评分1-10。仅输出纯JSON：{\"dim\":\"商业\",\"verdict\":\"你的锐评\",\"score\":数字}",
+    "技术": "你是技术架构师。用2句话锐评技术可行性和成本。评分1-10。仅输出纯JSON：{\"dim\":\"技术\",\"verdict\":\"你的锐评\",\"score\":数字}",
+    "心理": "你是认知心理学家。用2句话指出决策者的思维盲点。评分1-10。仅输出纯JSON：{\"dim\":\"心理\",\"verdict\":\"你的锐评\",\"score\":数字}",
+    "执行": "你是项目管理专家。用2句话评估执行路径，给3个步骤。评分1-10。仅输出纯JSON：{\"dim\":\"执行\",\"verdict\":\"你的锐评\",\"actions\":[\"步骤1\",\"步骤2\",\"步骤3\"],\"score\":数字}"
+}
+
+app = Flask(__name__)
 
 
 def get_client_ip():
@@ -49,76 +32,94 @@ def get_client_ip():
     return request.remote_addr or '127.0.0.1'
 
 
-def load_usage_data():
-    if os.path.exists(USAGE_FILE):
-        try:
-            with open(USAGE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
+def load_usage():
+    if not os.path.exists(USAGE_FILE):
+        return {}
+    with open(USAGE_FILE, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 
-def save_usage_data(data):
+def save_usage(data):
     with open(USAGE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False)
 
 
-def check_and_increment_usage(client_ip):
+def check_quota(ip):
     today = datetime.now().strftime('%Y-%m-%d')
-    usage_data = load_usage_data()
-    usage_data = {ip: d for ip, d in usage_data.items() if d.get('date') == today}
-    user_data = usage_data.get(client_ip, {'date': today, 'count': 0, 'is_pro': False})
-
-    if user_data.get('is_pro'):
-        user_data['count'] += 1
-        usage_data[client_ip] = user_data
-        save_usage_data(usage_data)
-        return True, -1
-
-    if user_data['count'] >= FREE_DAILY_LIMIT:
+    usage = load_usage()
+    usage = {k: v for k, v in usage.items() if v.get('date') == today}
+    user = usage.get(ip, {'date': today, 'count': 0})
+    if user.get('date') != today:
+        user = {'date': today, 'count': 0}
+    if user['count'] >= FREE_DAILY_LIMIT:
         return False, 0
-
-    user_data['count'] += 1
-    user_data['date'] = today
-    usage_data[client_ip] = user_data
-    save_usage_data(usage_data)
-    return True, FREE_DAILY_LIMIT - user_data['count']
+    user['count'] += 1
+    usage[ip] = user
+    save_usage(usage)
+    return True, FREE_DAILY_LIMIT - user['count']
 
 
-def get_remaining_quota(client_ip):
+def get_remaining(ip):
     today = datetime.now().strftime('%Y-%m-%d')
-    usage_data = load_usage_data()
-    user_data = usage_data.get(client_ip, {'date': today, 'count': 0, 'is_pro': False})
-    if user_data.get('is_pro'):
-        return -1
-    if user_data.get('date') != today:
+    usage = load_usage()
+    user = usage.get(ip, {'date': today, 'count': 0})
+    if user.get('date') != today:
         return FREE_DAILY_LIMIT
-    return max(0, FREE_DAILY_LIMIT - user_data.get('count', 0))
+    return max(0, FREE_DAILY_LIMIT - user.get('count', 0))
 
 
-def load_memory():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return [{"role": "system", "content": SYSTEM_PROMPT}]
+def call_agent(name, prompt, user_input):
+    r = requests.post("https://api.deepseek.com/chat/completions", json={
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_input}
+        ]
+    }, headers={
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    })
+    content = r.json()['choices'][0]['message']['content']
+    clean = content.replace('```json', '').replace('```', '').strip()
+    return json.loads(clean)
 
 
-def save_memory(history):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+def run_agents(user_input):
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            pool.submit(call_agent, n, p, user_input): n
+            for n, p in AGENTS.items()
+        }
+        for f in as_completed(futures):
+            try:
+                results.append(f.result())
+            except Exception:
+                pass
 
+    scores = {r['dim']: r['score'] for r in results if 'score' in r}
+    avg = round(sum(scores.values()) / len(scores), 1) if scores else 0
 
-HISTORY = load_memory()
-if HISTORY and HISTORY[0].get("role") == "system":
-    HISTORY[0]["content"] = SYSTEM_PROMPT
-else:
-    HISTORY.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+    actions = []
+    for r in results:
+        if 'actions' in r:
+            actions = r['actions']
+            break
 
-app = Flask(__name__)
+    if avg < 4:
+        bluf = f"综合 {avg}/10 — 高风险，建议暂停"
+    elif avg < 7:
+        bluf = f"综合 {avg}/10 — 有潜力但需验证"
+    else:
+        bluf = f"综合 {avg}/10 — 可执行"
+
+    return {
+        "bluf": bluf,
+        "dimensions": results,
+        "actions": actions,
+        "tag": "多维审计",
+        "avg_score": avg
+    }
 
 
 @app.route('/')
@@ -126,52 +127,23 @@ def home():
     return render_template('index.html')
 
 
-@app.route('/api/quota', methods=['GET'])
-def get_quota():
-    client_ip = get_client_ip()
-    remaining = get_remaining_quota(client_ip)
-    return jsonify({'remaining': remaining, 'limit': FREE_DAILY_LIMIT, 'is_pro': remaining == -1})
+@app.route('/api/quota')
+def quota():
+    remaining = get_remaining(get_client_ip())
+    return jsonify({'remaining': remaining, 'limit': FREE_DAILY_LIMIT})
 
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    client_ip = get_client_ip()
-    allowed, remaining = check_and_increment_usage(client_ip)
-
+    ip = get_client_ip()
+    allowed, remaining = check_quota(ip)
     if not allowed:
         return jsonify({'error': 'quota_exceeded'}), 429
 
     user_input = request.json.get('message')
-    HISTORY.append({"role": "user", "content": user_input})
-    save_memory(HISTORY)
-
-    context = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_input}
-    ]
-
-    def generate():
-        yield f"data: {json.dumps({'quota': remaining})}\n\n"
-        url = "https://api.deepseek.com/chat/completions"
-        payload = {"model": MODEL_NAME, "messages": context, "stream": True}
-        headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-        with requests.post(url, json=payload, headers=headers, stream=True) as r:
-            for line in r.iter_lines():
-                if not line:
-                    continue
-                decoded = line.decode('utf-8')
-                if decoded.startswith('data: [DONE]'):
-                    break
-                if decoded.startswith('data: '):
-                    try:
-                        data = json.loads(decoded[6:])
-                        content = data['choices'][0]['delta'].get('content')
-                        if content:
-                            yield f"data: {json.dumps({'content': content})}\n\n"
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        pass
-
-    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    result = run_agents(user_input)
+    result['remaining'] = remaining
+    return jsonify(result)
 
 
 @app.route('/<path:path>')
@@ -184,8 +156,9 @@ def open_browser():
 
 
 if __name__ == '__main__':
-    is_production = os.getenv('PORT') or os.getenv('RENDER')
-    print(f">>> 会锐评的AI ONLINE: http://127.0.0.1:{FLASK_PORT}")
-    if not is_production:
+    is_prod = os.getenv('PORT') or os.getenv('RENDER')
+    print(f">>> 会锐评的AI [ONLINE]: http://127.0.0.1:{FLASK_PORT}")
+    if not is_prod:
         Timer(1, open_browser).start()
     app.run(debug=FLASK_DEBUG, port=FLASK_PORT, host=FLASK_HOST, use_reloader=False)
+
