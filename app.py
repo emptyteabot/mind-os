@@ -149,6 +149,37 @@ def chat():
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 
+PRODUCT_BRIEF = "产品名：会锐评的AI。链接：mind-os.onrender.com。功能：4位AI审计官同时审视你的想法，指出盲点和逻辑漏洞。每天50次免费。和ChatGPT的区别：这个不会夸你，只会怼你。"
+
+CONTENT_AGENTS = {
+    "小红书": f"你是小红书爆款文案写手。根据以下产品信息写一条小红书笔记。要求：300字以内，口语化，有情绪钩子，带话题标签，不要写价格。产品信息：{PRODUCT_BRIEF}",
+    "短视频": f"你是短视频编导。根据以下产品信息写一条15-30秒短视频脚本。格式：【画面】+【旁白/文案】+【结尾CTA】。产品信息：{PRODUCT_BRIEF}",
+    "知乎": f"你是知乎高赞答主。根据以下产品信息写一条知乎风格的回答（回答问题：有哪些能提升决策能力的AI工具？）。要求：理性、有逻辑、300字以内。产品信息：{PRODUCT_BRIEF}",
+}
+
+
+@app.route('/admin')
+def admin():
+    return render_template('admin.html')
+
+
+@app.route('/api/generate-content', methods=['POST'])
+def generate_content():
+    def gen():
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {
+                pool.submit(call_agent, name, prompt, "生成今日推广内容"): name
+                for name, prompt in CONTENT_AGENTS.items()
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                content = future.result()
+                yield f"data: {json.dumps({'platform': name, 'content': content})}\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    return Response(stream_with_context(gen()), mimetype='text/event-stream')
+
+
 @app.route('/<path:path>')
 def catch_all(path):
     return redirect('/')
