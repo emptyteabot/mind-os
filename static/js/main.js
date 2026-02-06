@@ -9,17 +9,28 @@ const proModal = document.getElementById('pro-modal');
 const closeModalBtn = document.getElementById('close-modal');
 const quotaDisplay = document.getElementById('quota-display');
 
-const STORAGE_KEY = 'ruiping_usage';
+const STORAGE_KEY = 'mindos_usage';
 const FREE_LIMIT = 50;
+
+const AGENT_LABELS = {
+    '商业': {color: '#007AFF', icon: 'briefcase'},
+    '技术': {color: '#34C759', icon: 'cpu'},
+    '心理': {color: '#FF3B30', icon: 'brain'},
+    '执行': {color: '#FF9500', icon: 'list-checks'},
+};
 
 function getTodayKey() {
     return new Date().toISOString().split('T')[0];
 }
 
 function getLocalUsage() {
-    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    if (data.date !== getTodayKey()) return { date: getTodayKey(), count: 0 };
-    return data;
+    try {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (data.date !== getTodayKey()) return {date: getTodayKey(), count: 0};
+        return data;
+    } catch {
+        return {date: getTodayKey(), count: 0};
+    }
 }
 
 function incrementUsage() {
@@ -29,41 +40,44 @@ function incrementUsage() {
     return FREE_LIMIT - usage.count;
 }
 
-function getRemaining() {
-    return Math.max(0, FREE_LIMIT - getLocalUsage().count);
+function getRemainingQuota() {
+    const usage = getLocalUsage();
+    return Math.max(0, FREE_LIMIT - usage.count);
 }
 
-function updateQuota(remaining) {
+function updateQuotaDisplay(n) {
     if (!quotaDisplay) return;
-    if (remaining <= 5) {
-        quotaDisplay.innerHTML = '<span class="text-red-500">' + remaining + '/' + FREE_LIMIT + '</span>';
+    if (n === -1) {
+        quotaDisplay.innerHTML = '<span style="color:#34C759">PRO</span>';
+    } else if (n <= 5) {
+        quotaDisplay.innerHTML = `<span style="color:#FF3B30">${n}/${FREE_LIMIT}</span>`;
     } else {
-        quotaDisplay.textContent = remaining + '/' + FREE_LIMIT;
+        quotaDisplay.textContent = `${n}/${FREE_LIMIT}`;
     }
 }
 
-updateQuota(getRemaining());
+updateQuotaDisplay(getRemainingQuota());
 
-function showModal() {
+function showProModal() {
     proModal.classList.remove('hidden');
     proModal.classList.add('flex');
 }
 
-function hideModal() {
+function hideProModal() {
     proModal.classList.add('hidden');
     proModal.classList.remove('flex');
 }
 
-closeModalBtn.addEventListener('click', hideModal);
-proModal.addEventListener('click', function(e) { if (e.target === proModal) hideModal(); });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') hideModal(); });
+closeModalBtn.addEventListener('click', hideProModal);
+proModal.addEventListener('click', e => { if (e.target === proModal) hideProModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideProModal(); });
 
-input.addEventListener('focus', function() {
+input.addEventListener('focus', () => {
     logoContainer.style.marginTop = '-100px';
     logoContainer.style.opacity = '0';
 });
 
-input.addEventListener('input', function() {
+input.addEventListener('input', function () {
     this.style.height = 'auto';
     this.style.height = this.scrollHeight + 'px';
 });
@@ -72,100 +86,114 @@ async function handleSend() {
     const text = input.value.trim();
     if (!text) return;
 
-    if (getRemaining() <= 0) {
-        showModal();
+    if (getRemainingQuota() <= 0) {
+        showProModal();
         return;
     }
 
+    const cardId = Date.now();
+    renderInputCard(cardId, text);
+
     input.value = '';
     input.style.height = 'auto';
-    loader.classList.add('active');
-
-    renderUserCard(text);
+    loader.style.width = '40%';
 
     try {
         const res = await fetch('/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: text })
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: text})
         });
 
-        loader.classList.remove('active');
-
         if (res.status === 429) {
-            showModal();
+            document.getElementById(`card-${cardId}`)?.remove();
+            loader.style.width = '0';
+            showProModal();
             return;
         }
 
-        const data = await res.json();
-        incrementUsage();
-        updateQuota(data.remaining !== undefined ? data.remaining : getRemaining());
-        renderAuditCard(data);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        const resultCard = createResultCard(cardId);
+
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            for (const line of chunk.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.quota !== undefined) {
+                        incrementUsage();
+                        updateQuotaDisplay(data.quota);
+                        loader.style.width = '60%';
+                    }
+                    if (data.agent && data.verdict) {
+                        appendAgentResult(resultCard, data.agent, data.verdict);
+                        loader.style.width = `${60 + Math.random() * 30}%`;
+                    }
+                    if (data.done) {
+                        loader.style.width = '100%';
+                        setTimeout(() => { loader.style.width = '0'; }, 300);
+                    }
+                } catch {}
+            }
+        }
     } catch (err) {
-        loader.classList.remove('active');
+        loader.style.width = '0';
     }
 }
 
-function renderUserCard(text) {
+function renderInputCard(id, text) {
     const div = document.createElement('div');
+    div.id = `card-${id}`;
     div.className = 'os-card opacity-60';
-    div.innerHTML = '<div class="flex justify-between items-start">' +
-        '<h2 class="text-lg font-bold text-black">' + escapeHtml(text) + '</h2>' +
-        '<span class="tag-badge">INPUT</span></div>';
+    div.innerHTML = `
+        <div class="flex justify-between items-start">
+            <h2 class="text-lg font-bold text-black leading-snug">${escapeHtml(text)}</h2>
+            <span class="tag-badge">INPUT</span>
+        </div>`;
     feed.insertBefore(div, feed.firstChild);
 }
 
-function renderAuditCard(data) {
+function createResultCard(inputCardId) {
+    const inputCard = document.getElementById(`card-${inputCardId}`);
+    if (inputCard) inputCard.classList.remove('opacity-60');
+
     const div = document.createElement('div');
     div.className = 'os-card';
-
-    var dimsHtml = '';
-    if (data.dimensions && data.dimensions.length) {
-        dimsHtml = '<div class="dims-grid">';
-        for (var i = 0; i < data.dimensions.length; i++) {
-            var d = data.dimensions[i];
-            var cls = d.score >= 7 ? 'score-high' : d.score >= 4 ? 'score-mid' : 'score-low';
-            dimsHtml += '<div class="dim-item">' +
-                '<div class="dim-header">' +
-                '<span class="dim-name">' + d.dim + '</span>' +
-                '<span class="dim-score ' + cls + '">' + d.score + '/10</span>' +
-                '</div>' +
-                '<div class="dim-verdict">' + d.verdict + '</div>' +
-                '</div>';
-        }
-        dimsHtml += '</div>';
+    div.innerHTML = '<div class="agent-grid"></div>';
+    if (inputCard) {
+        inputCard.after(div);
+    } else {
+        feed.insertBefore(div, feed.firstChild);
     }
+    return div.querySelector('.agent-grid');
+}
 
-    var actionsHtml = '';
-    if (data.actions && data.actions.length) {
-        actionsHtml = '<div class="action-list">';
-        for (var j = 0; j < data.actions.length; j++) {
-            actionsHtml += '<div class="action-item">' + data.actions[j] + '</div>';
-        }
-        actionsHtml += '</div>';
-    }
-
-    div.innerHTML = '<div class="flex flex-col gap-3">' +
-        '<div class="flex justify-between items-start">' +
-        '<h2 class="text-lg font-bold text-black">' + data.bluf + '</h2>' +
-        '<span class="tag-badge">' + (data.tag || 'AUDIT') + '</span>' +
-        '</div>' +
-        dimsHtml +
-        actionsHtml +
-        '</div>';
-
-    feed.insertBefore(div, feed.firstChild);
+function appendAgentResult(container, agentName, verdict) {
+    const meta = AGENT_LABELS[agentName] || {color: '#999', icon: 'message-circle'};
+    const panel = document.createElement('div');
+    panel.className = 'agent-panel fade-in';
+    panel.innerHTML = `
+        <div class="agent-header">
+            <i data-lucide="${meta.icon}" style="width:14px;height:14px;color:${meta.color}"></i>
+            <span class="agent-name" style="color:${meta.color}">${agentName}审计</span>
+        </div>
+        <p class="agent-verdict">${escapeHtml(verdict)}</p>`;
+    container.appendChild(panel);
     lucide.createIcons();
 }
 
 function escapeHtml(text) {
-    var d = document.createElement('div');
+    const d = document.createElement('div');
     d.textContent = text;
     return d.innerHTML;
 }
 
 sendBtn.onclick = handleSend;
-input.onkeydown = function(e) {
+input.onkeydown = e => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSend();
